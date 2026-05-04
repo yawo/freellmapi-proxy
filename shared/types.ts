@@ -1,9 +1,5 @@
 // ---- Platform & Model Types ----
 
-// Active platforms — must match server/src/providers/index.ts and
-// server/src/routes/keys.ts PLATFORMS allowlist.
-// Hugging Face, Moonshot, and MiniMax direct integrations were dropped
-// in migrateModelsV4 (see server/src/db/index.ts).
 export type Platform =
   | 'google'
   | 'groq'
@@ -15,11 +11,12 @@ export type Platform =
   | 'github'
   | 'cohere'
   | 'cloudflare'
-  | 'zhipu';
+  | 'zhipu'
+  | (string & {});
 
 export interface Model {
   id: number;
-  platform: Platform;
+  platform: string;
   modelId: string;
   displayName: string;
   intelligenceRank: number;
@@ -32,6 +29,8 @@ export interface Model {
   monthlyTokenBudget: string;
   contextWindow: number | null;
   enabled: boolean;
+  baseUrl?: string | null;
+  validateUrl?: string | null;
 }
 
 export type KeyStatus = 'healthy' | 'rate_limited' | 'invalid' | 'error' | 'unknown';

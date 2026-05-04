@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -6,21 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
-import type { ApiKey, Platform } from '../../../shared/types'
-
-const PLATFORMS: { value: Platform; label: string }[] = [
-  { value: 'google', label: 'Google AI Studio' },
-  { value: 'groq', label: 'Groq' },
-  { value: 'cerebras', label: 'Cerebras' },
-  { value: 'sambanova', label: 'SambaNova' },
-  { value: 'nvidia', label: 'NVIDIA NIM' },
-  { value: 'mistral', label: 'Mistral' },
-  { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'github', label: 'GitHub Models' },
-  { value: 'cohere', label: 'Cohere' },
-  { value: 'cloudflare', label: 'Cloudflare Workers AI' },
-  { value: 'zhipu', label: 'Zhipu AI (Z.ai)' },
-]
+import type { ApiKey, Platform, Model } from '../../../shared/types'
 
 const statusDot: Record<string, string> = {
   healthy: 'bg-emerald-500',
@@ -58,20 +44,20 @@ function UnifiedKeySection() {
   const [showKey, setShowKey] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  const { data } = useQuery<{ apiKey: string }>({
-    queryKey: ['unified-key'],
-    queryFn: () => apiFetch('/api/settings/api-key'),
+  const { data } = useQuery<{ unifiedApiKey: string }>({
+    queryKey: ['settings'],
+    queryFn: () => apiFetch('/api/settings'),
   })
 
   const regenerate = useMutation({
     mutationFn: () => apiFetch('/api/settings/api-key/regenerate', { method: 'POST' }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['unified-key'] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
   })
 
-  const apiKey = data?.apiKey ?? ''
+  const apiKey = data?.unifiedApiKey ?? ''
   const masked = apiKey ? apiKey.slice(0, 13) + '•'.repeat(32) : '…'
   const baseUrl = import.meta.env.DEV
-    ? `http://${window.location.hostname}:${__SERVER_PORT__}/v1`
+    ? `http://${window.location.hostname}:3001/v1`
     : `${window.location.origin}/v1`
 
   function copy() {
@@ -89,14 +75,6 @@ function UnifiedKeySection() {
             Use this as your OpenAI <code className="font-mono">api_key</code>; it authenticates requests to this proxy.
           </p>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => regenerate.mutate()}
-          disabled={regenerate.isPending}
-        >
-          Regenerate
-        </Button>
       </div>
 
       <div className="flex items-center gap-2">
@@ -133,19 +111,33 @@ export default function KeysPage() {
     queryFn: () => apiFetch('/api/keys'),
   })
 
+  const { data: models = [] } = useQuery<Model[]>({
+    queryKey: ['models'],
+    queryFn: () => apiFetch('/api/models'),
+  })
+
   const { data: healthData } = useQuery<HealthData>({
     queryKey: ['health'],
     queryFn: () => apiFetch('/api/health'),
     refetchInterval: 30000,
+    enabled: false, // temporarily disabled until health endpoint ported fully
   })
+
+  const platforms = useMemo(() => {
+    const p = new Map<string, string>()
+    for (const m of models) {
+      if (!p.has(m.platform)) {
+        p.set(m.platform, m.platform.charAt(0).toUpperCase() + m.platform.slice(1))
+      }
+    }
+    return Array.from(p.entries()).map(([value, label]) => ({ value, label }))
+  }, [models])
 
   const addKey = useMutation({
     mutationFn: (body: { platform: string; key: string; label?: string }) =>
       apiFetch('/api/keys', { method: 'POST', body: JSON.stringify(body) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['keys'] })
-      queryClient.invalidateQueries({ queryKey: ['health'] })
-      queryClient.invalidateQueries({ queryKey: ['fallback'] })
       setPlatform('')
       setApiKey('')
       setAccountId('')
@@ -156,23 +148,6 @@ export default function KeysPage() {
   const deleteKey = useMutation({
     mutationFn: (id: number) => apiFetch(`/api/keys/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['keys'] })
-      queryClient.invalidateQueries({ queryKey: ['health'] })
-    },
-  })
-
-  const checkAll = useMutation({
-    mutationFn: () => apiFetch('/api/health/check-all', { method: 'POST' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['health'] })
-      queryClient.invalidateQueries({ queryKey: ['keys'] })
-    },
-  })
-
-  const checkKey = useMutation({
-    mutationFn: (keyId: number) => apiFetch(`/api/health/check/${keyId}`, { method: 'POST' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['health'] })
       queryClient.invalidateQueries({ queryKey: ['keys'] })
     },
   })
@@ -190,7 +165,7 @@ export default function KeysPage() {
   const healthKeyMap = new Map<number, { status: string; lastCheckedAt: string | null }>()
   for (const k of healthData?.keys ?? []) healthKeyMap.set(k.id, k)
 
-  const grouped = PLATFORMS.map(p => ({
+  const grouped = platforms.map(p => ({
     ...p,
     keys: keys.filter(k => k.platform === p.value),
   })).filter(p => p.keys.length > 0)
@@ -200,13 +175,6 @@ export default function KeysPage() {
       <PageHeader
         title="Keys"
         description="Provider credentials and the unified API key your apps connect with."
-        actions={
-          keys.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => checkAll.mutate()} disabled={checkAll.isPending}>
-              {checkAll.isPending ? 'Checking…' : 'Check all'}
-            </Button>
-          )
-        }
       />
 
       <div className="space-y-8">
@@ -222,7 +190,7 @@ export default function KeysPage() {
                   <SelectValue placeholder="Select provider" />
                 </SelectTrigger>
                 <SelectContent>
-                  {PLATFORMS.map(p => (
+                  {platforms.map(p => (
                     <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>
                   ))}
                 </SelectContent>
@@ -301,12 +269,9 @@ export default function KeysPage() {
                           <div className="flex-1" />
                           {lastChecked && (
                             <span className="text-[11px] text-muted-foreground tabular-nums">
-                              {new Date(lastChecked).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(parseInt(lastChecked)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </span>
                           )}
-                          <Button variant="ghost" size="xs" onClick={() => checkKey.mutate(k.id)} disabled={checkKey.isPending}>
-                            Check
-                          </Button>
                           <Button variant="ghost" size="xs" className="text-muted-foreground hover:text-destructive" onClick={() => deleteKey.mutate(k.id)} disabled={deleteKey.isPending}>
                             Remove
                           </Button>

@@ -6,6 +6,7 @@ import KeysPage from '@/pages/KeysPage'
 import PlaygroundPage from '@/pages/PlaygroundPage'
 import FallbackPage from '@/pages/FallbackPage'
 import AnalyticsPage from '@/pages/AnalyticsPage'
+import ModelsPage from '@/pages/ModelsPage'
 
 const queryClient = new QueryClient()
 
@@ -77,6 +78,7 @@ function App() {
               <nav className="flex items-center gap-6 ml-10">
                 <NavItem to="/playground">Playground</NavItem>
                 <NavItem to="/keys">Keys</NavItem>
+                <NavItem to="/models">Models</NavItem>
                 <NavItem to="/fallback">Fallback</NavItem>
                 <NavItem to="/analytics">Analytics</NavItem>
               </nav>
@@ -90,6 +92,7 @@ function App() {
               <Route path="/" element={<Navigate to="/playground" replace />} />
               <Route path="/playground" element={<PlaygroundPage />} />
               <Route path="/keys" element={<KeysPage />} />
+              <Route path="/models" element={<ModelsPage />} />
               <Route path="/fallback" element={<FallbackPage />} />
               <Route path="/analytics" element={<AnalyticsPage />} />
               <Route path="/test" element={<Navigate to="/playground" replace />} />
