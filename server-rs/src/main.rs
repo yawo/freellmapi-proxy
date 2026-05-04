@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize crypto from .env
     // Try to load from current dir, if fails try parent dir
     if dotenvy::dotenv().is_err() {
-        dotenvy::from_path("../.env").ok();
+        dotenvy::from_path("./.env").ok();
     }
     crypto::init_encryption_key();
 
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(services::health::run_health_checks(db));
 
     // Build Router
-    let client_dist = std::env::var("CLIENT_DIST").unwrap_or_else(|_| "../client/dist".to_string());
+    let client_dist = std::env::var("CLIENT_DIST").unwrap_or_else(|_| "./dist".to_string());
     println!("Serving frontend from: {}", client_dist);
 
     let app = Router::new()
