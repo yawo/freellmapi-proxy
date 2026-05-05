@@ -1,9 +1,9 @@
 use aes_gcm::{
-    aead::{Aead, KeyInit, Payload},
+    aead::{Aead, KeyInit},
     AesGcm,
 };
 use aes_gcm::aes::Aes256;
-use rand::Rng;
+use rand::RngCore;
 use std::env;
 use std::sync::OnceLock;
 
@@ -46,7 +46,7 @@ pub fn encrypt(text: &str) -> EncryptedData {
     let cipher = Aes256Gcm16::new(key.into());
 
     let mut iv_bytes = [0u8; 16];
-    rand::rng().fill_bytes(&mut iv_bytes);
+    rand::thread_rng().fill_bytes(&mut iv_bytes);
     
     // In node.js, the final ciphertext and auth tag are separate.
     // aes_gcm appends the 16-byte auth tag to the end of the ciphertext.

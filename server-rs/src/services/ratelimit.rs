@@ -1,6 +1,5 @@
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
-use std::sync::Arc;
 use tokio::time::{Duration, Instant};
 
 const MINUTE: Duration = Duration::from_secs(60);

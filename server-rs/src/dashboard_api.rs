@@ -1,12 +1,15 @@
+
 use axum::{
     extract::{State, Path, Query},
     http::StatusCode,
     routing::{get, post, put, delete},
     Json, Router,
 };
-use sea_orm::{ActiveModelTrait, ActiveValue, DatabaseConnection, EntityTrait, QueryOrder, QuerySelect, QueryFilter, ColumnTrait};
+use sea_orm::{ActiveModelTrait, ActiveValue, EntityTrait, QueryOrder, QuerySelect, QueryFilter, ColumnTrait};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use rand::Rng;
+use rand::distributions::Alphanumeric;
 
 use crate::db::{api_keys, fallback_config, models, settings, requests};
 use crate::crypto::{encrypt, mask_key};
@@ -116,12 +119,53 @@ pub async fn delete_key(State(state): State<AppState>, Path(id): Path<i32>) -> R
     }
 }
 
-pub async fn list_models(State(state): State<AppState>) -> Result<Json<Vec<models::Model>>, (StatusCode, String)> {
-    let m = models::Entity::find()
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelDto {
+    pub id: i32,
+    pub platform: String,
+    pub model_id: String,
+    pub display_name: String,
+    pub intelligence_rank: i32,
+    pub speed_rank: i32,
+    pub size_label: String,
+    pub rpm_limit: Option<i32>,
+    pub rpd_limit: Option<i32>,
+    pub tpm_limit: Option<i32>,
+    pub tpd_limit: Option<i32>,
+    pub monthly_token_budget: String,
+    pub context_window: Option<i32>,
+    pub enabled: bool,
+    pub base_url: Option<String>,
+    pub validate_url: Option<String>,
+}
+
+pub async fn list_models(State(state): State<AppState>) -> Result<Json<Vec<ModelDto>>, (StatusCode, String)> {
+    let models_from_db = models::Entity::find()
         .all(&state.db)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)))?;
-    Ok(Json(m))
+
+    let dtos = models_from_db.into_iter().map(|m| ModelDto {
+        id: m.id,
+        platform: m.platform,
+        model_id: m.model_id,
+        display_name: m.display_name,
+        intelligence_rank: m.intelligence_rank,
+        speed_rank: m.speed_rank,
+        size_label: m.size_label,
+        rpm_limit: m.rpm_limit,
+        rpd_limit: m.rpd_limit,
+        tpm_limit: m.tpm_limit,
+        tpd_limit: m.tpd_limit,
+        monthly_token_budget: m.monthly_token_budget,
+        context_window: m.context_window,
+        enabled: m.enabled == 1,
+        base_url: m.base_url,
+        validate_url: m.validate_url,
+    }).collect();
+
+    Ok(Json(dtos))
 }
 
 #[derive(Deserialize)]
@@ -216,17 +260,38 @@ pub async fn list_fallback_chain(State(state): State<AppState>) -> Result<Json<V
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsDto {
-    pub unified_api_key: String,
+    pub api_key: String,
 }
 
-pub async fn get_settings(State(state): State<AppState>) -> Result<Json<SettingsDto>, (StatusCode, String)> {
+pub async fn get_api_key(State(state): State<AppState>) -> Result<Json<SettingsDto>, (StatusCode, String)> {
     let k = settings::Entity::find_by_id("unified_api_key").one(&state.db).await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)))?;
         
     Ok(Json(SettingsDto {
-        unified_api_key: k.map(|x| x.value).unwrap_or_default(),
+        api_key: k.map(|x| x.value).unwrap_or_default(),
     }))
 }
+
+pub async fn regenerate_api_key(State(state): State<AppState>) -> Result<Json<SettingsDto>, (StatusCode, String)> {
+    let new_key = format!("freellmapi-{}", rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(24)
+        .map(char::from)
+        .collect::<String>());
+
+    let setting = settings::ActiveModel {
+        key: ActiveValue::Set("unified_api_key".to_string()),
+        value: ActiveValue::Set(new_key.clone()),
+    };
+
+    settings::Entity::update(setting).exec(&state.db).await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("DB Error: {}", e)))?;
+
+    Ok(Json(SettingsDto {
+        api_key: new_key,
+    }))
+}
+
 
 #[derive(Deserialize)]
 pub struct AnalyticsQuery {
@@ -288,6 +353,10 @@ pub async fn get_analytics(State(state): State<AppState>, Query(q): Query<Analyt
     })))
 }
 
+pub async fn health_check() -> (StatusCode, &'static str) {
+    (StatusCode::OK, "OK")
+}
+
 pub fn api_router() -> Router<AppState> {
     Router::new()
         .route("/keys", get(list_keys).post(create_key))
@@ -296,6 +365,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/models", get(list_models).post(create_model))
         .route("/models/{id}", delete(delete_model))
         .route("/fallback", get(list_fallback_chain))
-        .route("/settings", get(get_settings))
+        .route("/settings/api-key", get(get_api_key))
+        .route("/settings/api-key/regenerate", post(regenerate_api_key))
         .route("/analytics", get(get_analytics))
+        .route("/health", get(health_check))
 }
